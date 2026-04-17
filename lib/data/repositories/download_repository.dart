@@ -69,6 +69,13 @@ class DownloadRepository {
     );
   }
 
+  Future<void> updateDownloadProxy(int id, model.ProxyConfig? proxy) async {
+    await (_db.update(_db.downloadItems)..where((t) => t.id.equals(id)))
+        .write(DownloadItemsCompanion(
+      proxyConfig: Value(proxy?.encode()),
+    ));
+  }
+
   Future<void> updateDownloadSettings(int id, {int? threadCount, int? speedLimit}) async {
     final companion = DownloadItemsCompanion(
       threadCount: threadCount != null ? Value(threadCount) : const Value.absent(),

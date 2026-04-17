@@ -45,6 +45,7 @@ dependencies:
   tray_manager: ^0.5.2
   dio_cookie_manager: ^3.4.0
   cookie_jar: ^4.0.9
+  socks5_proxy: ^2.1.1
 
 dev_dependencies:
   flutter_test:

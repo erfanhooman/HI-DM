@@ -3,8 +3,11 @@ import 'dart:io';
 
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
+import 'package:socks5_proxy/socks_client.dart';
 
+import '../../data/models/proxy_config.dart';
 import 'speed_limiter.dart';
 
 enum ConnectionStatus { idle, downloading, completed, error, paused }
@@ -20,6 +23,7 @@ class ConnectionPool {
   final int retryDelaySeconds;
   final SpeedLimiter? speedLimiter;
   final CookieJar? cookieJar;
+  final ProxyConfig? proxyConfig;
   final SegmentProgressCallback? onProgress;
   final SegmentStatusCallback? onStatusChange;
 
@@ -38,6 +42,7 @@ class ConnectionPool {
     this.retryDelaySeconds = 5,
     this.speedLimiter,
     this.cookieJar,
+    this.proxyConfig,
     this.onProgress,
     this.onStatusChange,
   });
@@ -166,7 +171,9 @@ class ConnectionPool {
     if (response.data == null) return; // Safety: no response body
 
     final tempFile = File(task.tempFilePath);
-    final sink = tempFile.openWrite(mode: FileMode.append);
+    final sink = tempFile.openWrite(
+      mode: task.alreadyDownloaded > 0 ? FileMode.append : FileMode.write,
+    );
     var downloaded = task.alreadyDownloaded;
     final totalSegmentBytes = task.endByte >= 0 ? task.endByte - task.startByte + 1 : -1;
 
@@ -243,7 +250,51 @@ class ConnectionPool {
     if (cookieJar != null) {
       dio.interceptors.add(CookieManager(cookieJar!));
     }
+    applyProxy(dio, proxyConfig);
     return dio;
+  }
+
+  static void applyProxy(Dio dio, ProxyConfig? proxy) {
+    if (proxy == null || proxy.type == 'none') return;
+
+    final type = proxy.type;
+    final host = proxy.host;
+    final port = proxy.port;
+    final username = proxy.username;
+    final password = proxy.password;
+
+    if (type == 'http' || type == 'https') {
+      dio.httpClientAdapter = IOHttpClientAdapter(
+        createHttpClient: () {
+          final client = HttpClient();
+          client.findProxy = (uri) => 'PROXY $host:$port';
+          if (username != null && username.isNotEmpty) {
+            client.addProxyCredentials(
+              host,
+              port,
+              'basic',
+              HttpClientBasicCredentials(username, password ?? ''),
+            );
+          }
+          return client;
+        },
+      );
+    } else if (type == 'socks4' || type == 'socks5') {
+      dio.httpClientAdapter = IOHttpClientAdapter(
+        createHttpClient: () {
+          final client = HttpClient();
+          SocksTCPClient.assignToHttpClient(client, [
+            ProxySettings(
+              InternetAddress.tryParse(host) ?? InternetAddress(host),
+              port,
+              username: username != null && username.isNotEmpty ? username : null,
+              password: username != null && username.isNotEmpty ? (password ?? '') : null,
+            ),
+          ]);
+          return client;
+        },
+      );
+    }
   }
 
   void dispose() {

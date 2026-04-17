@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/file_utils.dart';
 import '../../data/models/download_item.dart' as model;
+import '../../data/models/proxy_config.dart';
 import '../../data/repositories/category_repository.dart';
 import '../../data/repositories/download_repository.dart';
 import '../../data/repositories/settings_repository.dart';
@@ -178,6 +179,24 @@ class DownloadManager {
       }
     }
 
+    // Resolve proxy: per-download proxy takes priority over global proxy
+    String? effectiveProxyJson;
+    if (item.proxy != null && item.proxy!.type != 'none') {
+      effectiveProxyJson = item.proxy!.encode();
+    } else {
+      final globalProxyEnabled = await _settingsRepo.getBoolValue(
+        AppSettings.globalProxyEnabled,
+      );
+      if (globalProxyEnabled) {
+        final globalProxyConfigStr = await _settingsRepo.getValue(
+          AppSettings.globalProxyConfig,
+        );
+        if (globalProxyConfigStr.isNotEmpty) {
+          effectiveProxyJson = globalProxyConfigStr;
+        }
+      }
+    }
+
     final config = DownloadIsolateConfig(
       downloadId: downloadId,
       url: item.url,
@@ -186,7 +205,7 @@ class DownloadManager {
       tempDirectory: '$_tempDirectory/$downloadId',
       threadCount: item.threadCount,
       headers: item.headers,
-      proxyConfigJson: item.proxy?.encode(),
+      proxyConfigJson: effectiveProxyJson,
       speedLimitBytesPerSecond: effectiveSpeedLimit,
       connectionTimeoutSeconds: await _settingsRepo.getIntValue(
         AppSettings.connectionTimeout,
@@ -261,6 +280,11 @@ class DownloadManager {
     }
 
     await _downloadRepo.deleteDownload(downloadId);
+  }
+
+  /// Update per-download proxy config. Requires restart to take effect.
+  Future<void> updateDownloadProxy(int downloadId, ProxyConfig? proxy) async {
+    await _downloadRepo.updateDownloadProxy(downloadId, proxy);
   }
 
   /// Update per-download settings (thread count, speed limit).

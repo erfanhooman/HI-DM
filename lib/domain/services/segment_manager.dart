@@ -335,53 +335,6 @@ class SegmentManager {
     return segments;
   }
 
-  /// Dynamically rebalance segments when one finishes early.
-  /// Returns new segment assignments if a split is beneficial, null otherwise.
-  ///
-  /// [completedIndex] - index of the segment that just completed
-  /// [segmentProgress] - map of segment index -> downloaded bytes for active segments
-  /// [segmentInfos] - current segment definitions
-  List<SegmentInfo>? dynamicRebalance({
-    required int completedIndex,
-    required Map<int, int> segmentProgress,
-    required List<SegmentInfo> segmentInfos,
-  }) {
-    // Find the segment with the most remaining bytes
-    int? slowestIndex;
-    int maxRemaining = 0;
-
-    for (final entry in segmentProgress.entries) {
-      if (entry.key == completedIndex) continue;
-      final segment = segmentInfos[entry.key];
-      final remaining = segment.totalBytes - entry.value;
-      if (remaining > maxRemaining) {
-        maxRemaining = remaining;
-        slowestIndex = entry.key;
-      }
-    }
-
-    // Only split if the remaining work is substantial (> 512KB)
-    if (slowestIndex == null || maxRemaining < 512 * 1024) return null;
-
-    final slowest = segmentInfos[slowestIndex];
-    final downloaded = segmentProgress[slowestIndex] ?? 0;
-    final currentPosition = slowest.startByte + downloaded;
-    final midpoint = currentPosition + ((slowest.endByte - currentPosition) ~/ 2);
-
-    // Slowest keeps downloading up to midpoint
-    // New segment (reusing completedIndex) takes midpoint+1 to end
-    final updatedSegments = List<SegmentInfo>.from(segmentInfos);
-    updatedSegments[slowestIndex] = slowest.copyWith(endByte: midpoint);
-
-    // Reuse the completed segment's slot for the new range
-    updatedSegments[completedIndex] = SegmentInfo(
-      index: completedIndex,
-      startByte: midpoint + 1,
-      endByte: slowest.endByte,
-    );
-
-    return updatedSegments;
-  }
 
   int _parseContentLength(Headers headers) {
     final cl = headers.value('content-length');

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../data/models/app_settings.dart';
 import '../../../data/models/download_category.dart';
+import '../../../data/models/proxy_config.dart';
 import '../../providers/category_providers.dart';
 import '../../providers/locale_provider.dart';
 import '../../providers/settings_providers.dart';
@@ -221,10 +222,221 @@ class _ConnectionTab extends ConsumerWidget {
               ),
             ),
           ),
+          const Divider(height: 32),
+          _GlobalProxySection(map: map),
         ],
       ),
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Error: $e')),
+    );
+  }
+}
+
+class _GlobalProxySection extends ConsumerWidget {
+  final Map<String, String> map;
+  const _GlobalProxySection({required this.map});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = map[AppSettings.globalProxyEnabled] == 'true';
+    final configStr = map[AppSettings.globalProxyConfig] ?? '';
+    ProxyConfig? current;
+    try {
+      if (configStr.isNotEmpty) current = ProxyConfig.decode(configStr);
+    } catch (_) {}
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          title: const Text('Global Proxy'),
+          subtitle: Text(
+            enabled && current != null && current.type != 'none'
+                ? '${current.type.toUpperCase()}://${current.host}:${current.port}'
+                : 'No proxy configured',
+          ),
+          value: enabled,
+          onChanged: (v) {
+            ref.read(settingsRepositoryProvider).setBoolValue(AppSettings.globalProxyEnabled, v);
+            ref.invalidate(allSettingsProvider);
+          },
+        ),
+        if (enabled)
+          Padding(
+            padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+            child: FilledButton.tonalIcon(
+              icon: const Icon(Icons.edit, size: 18),
+              label: const Text('Configure Proxy'),
+              onPressed: () => _showProxyEditor(context, ref, current),
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _showProxyEditor(BuildContext context, WidgetRef ref, ProxyConfig? current) {
+    showDialog(
+      context: context,
+      builder: (ctx) => ProxyConfigDialog(
+        initial: current,
+        onSave: (config) {
+          ref.read(settingsRepositoryProvider).setValue(
+            AppSettings.globalProxyConfig,
+            config.encode(),
+          );
+          ref.read(settingsRepositoryProvider).setBoolValue(
+            AppSettings.globalProxyEnabled,
+            config.type != 'none',
+          );
+          ref.invalidate(allSettingsProvider);
+        },
+      ),
+    );
+  }
+}
+
+/// Reusable proxy configuration dialog — used in both global settings and per-download settings.
+class ProxyConfigDialog extends StatefulWidget {
+  final ProxyConfig? initial;
+  final ValueChanged<ProxyConfig> onSave;
+
+  const ProxyConfigDialog({super.key, this.initial, required this.onSave});
+
+  @override
+  State<ProxyConfigDialog> createState() => _ProxyConfigDialogState();
+}
+
+class _ProxyConfigDialogState extends State<ProxyConfigDialog> {
+  late String _type;
+  late final TextEditingController _hostController;
+  late final TextEditingController _portController;
+  late final TextEditingController _usernameController;
+  late final TextEditingController _passwordController;
+  bool _obscurePassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _type = widget.initial?.type ?? 'http';
+    _hostController = TextEditingController(text: widget.initial?.host ?? '');
+    _portController = TextEditingController(
+      text: widget.initial != null && widget.initial!.port > 0
+          ? widget.initial!.port.toString()
+          : '',
+    );
+    _usernameController = TextEditingController(text: widget.initial?.username ?? '');
+    _passwordController = TextEditingController(text: widget.initial?.password ?? '');
+  }
+
+  @override
+  void dispose() {
+    _hostController.dispose();
+    _portController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Proxy Configuration'),
+      content: SizedBox(
+        width: 380,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DropdownButtonFormField<String>(
+              initialValue: _type,
+              decoration: const InputDecoration(
+                labelText: 'Proxy Type',
+                border: OutlineInputBorder(),
+              ),
+              items: const [
+                DropdownMenuItem(value: 'http', child: Text('HTTP')),
+                DropdownMenuItem(value: 'https', child: Text('HTTPS')),
+                DropdownMenuItem(value: 'socks4', child: Text('SOCKS4')),
+                DropdownMenuItem(value: 'socks5', child: Text('SOCKS5')),
+              ],
+              onChanged: (v) => setState(() => _type = v ?? 'http'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _hostController,
+              decoration: const InputDecoration(
+                labelText: 'Host',
+                hintText: '127.0.0.1 or proxy.example.com',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _portController,
+              decoration: InputDecoration(
+                labelText: 'Port',
+                hintText: _type.startsWith('socks') ? '1080' : '8080',
+                border: const OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _usernameController,
+              decoration: const InputDecoration(
+                labelText: 'Username (optional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _passwordController,
+              obscureText: _obscurePassword,
+              decoration: InputDecoration(
+                labelText: 'Password (optional)',
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            // Clear / disable proxy
+            widget.onSave(ProxyConfig.none());
+            Navigator.pop(context);
+          },
+          child: const Text('Remove Proxy'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final host = _hostController.text.trim();
+            final port = int.tryParse(_portController.text.trim()) ?? 0;
+            if (host.isEmpty || port <= 0) return;
+            widget.onSave(ProxyConfig(
+              type: _type,
+              host: host,
+              port: port,
+              username: _usernameController.text.trim().isNotEmpty
+                  ? _usernameController.text.trim()
+                  : null,
+              password: _passwordController.text.trim().isNotEmpty
+                  ? _passwordController.text.trim()
+                  : null,
+            ));
+            Navigator.pop(context);
+          },
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

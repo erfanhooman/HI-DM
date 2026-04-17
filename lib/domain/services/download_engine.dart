@@ -7,6 +7,7 @@ import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:path/path.dart' as p;
 
+import '../../data/models/proxy_config.dart';
 import 'connection_pool.dart';
 import 'download_message.dart';
 import 'file_assembler.dart';
@@ -48,6 +49,7 @@ class _IsolateDownloadEngine {
   late final SegmentManager _segmentManager;
   late final FileAssembler _fileAssembler;
   late final SpeedLimiter _speedLimiter;
+  late final ProxyConfig? _proxyConfig;
   ConnectionPool? _connectionPool;
 
   // Speed tracking
@@ -67,6 +69,11 @@ class _IsolateDownloadEngine {
     required this.config,
     required this.sendPort,
   }) {
+    // Parse proxy config
+    _proxyConfig = config.proxyConfigJson != null && config.proxyConfigJson!.isNotEmpty
+        ? ProxyConfig.decode(config.proxyConfigJson!)
+        : null;
+
     _cookieJar = CookieJar();
     _dio = Dio(BaseOptions(
       connectTimeout: Duration(seconds: config.connectionTimeoutSeconds),
@@ -75,6 +82,8 @@ class _IsolateDownloadEngine {
       maxRedirects: 10,
     ));
     _dio.interceptors.add(CookieManager(_cookieJar));
+    // Apply proxy to the analysis/HEAD request Dio instance
+    ConnectionPool.applyProxy(_dio, _proxyConfig);
     _segmentManager = SegmentManager(_dio);
     _fileAssembler = FileAssembler(
       tempDirectory: config.tempDirectory,
@@ -90,6 +99,10 @@ class _IsolateDownloadEngine {
     try {
       _sendLog('Starting download: ${config.url}');
       _sendLog('Config: threads=${config.threadCount}, speedLimit=${config.speedLimitBytesPerSecond ?? "none"} B/s');
+      final proxy = _proxyConfig;
+      if (proxy != null && proxy.type != 'none') {
+        _sendLog('Proxy: ${proxy.type}://${proxy.host}:${proxy.port}');
+      }
       _sendStatus('connecting');
 
       await _fileAssembler.ensureTempDirectory();
@@ -236,12 +249,11 @@ class _IsolateDownloadEngine {
       }
 
       // Also check actual temp file size
-      final existing = await _fileAssembler.detectExistingSegments(1);
-      if (existing.containsKey(0)) {
-        // Re-check against the actual temp file
-        final detected = await _fileAssembler.detectExistingSegments(_segments.length);
-        if (detected.containsKey(segment.index)) {
-          alreadyDownloaded = detected[segment.index]!;
+      final tempFile = File(tempPath);
+      if (await tempFile.exists()) {
+        final fileSize = await tempFile.length();
+        if (fileSize > alreadyDownloaded) {
+          alreadyDownloaded = fileSize;
         }
       }
 
@@ -274,6 +286,7 @@ class _IsolateDownloadEngine {
       url: _resolvedUrl ?? config.url,
       headers: config.headers,
       cookieJar: _cookieJar,
+      proxyConfig: _proxyConfig,
       connectionTimeoutSeconds: config.connectionTimeoutSeconds,
       maxRetries: config.maxRetries,
       retryDelaySeconds: config.retryDelaySeconds,
@@ -318,17 +331,6 @@ class _IsolateDownloadEngine {
 
     if (status == ConnectionStatus.completed) {
       _sendLog('Segment $segmentIndex completed');
-
-      // Try dynamic rebalancing
-      final newSegments = _segmentManager.dynamicRebalance(
-        completedIndex: segmentIndex,
-        segmentProgress: _segmentProgress,
-        segmentInfos: _segments,
-      );
-      if (newSegments != null) {
-        _sendLog('Rebalanced: split work from slowest segment to segment $segmentIndex');
-        _segments = newSegments;
-      }
     }
 
     if (status == ConnectionStatus.error && errorMessage != null) {
@@ -371,6 +373,7 @@ class _IsolateDownloadEngine {
       outputPath: outputPath,
       segmentCount: _segments.length,
       expectedTotalSize: _totalSize,
+      expectedSegmentSizes: _segments.map((s) => s.totalBytes).toList(),
       onProgress: (assembled) {
         _sendLog('Assembling: $assembled / $_totalSize bytes');
       },

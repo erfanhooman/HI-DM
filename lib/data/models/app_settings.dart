@@ -32,6 +32,8 @@ class AppSettings {
   static const String duplicateHandling = 'duplicate_handling';
   static const String minimizeToTray = 'minimize_to_tray';
   static const String maxConcurrentDownloads = 'max_concurrent_downloads';
+  static const String globalProxyEnabled = 'global_proxy_enabled';
+  static const String globalProxyConfig = 'global_proxy_config';
 
   // Default values
   static const Map<String, String> defaults = {
@@ -57,5 +59,7 @@ class AppSettings {
     duplicateHandling: 'ask',
     minimizeToTray: 'true',
     maxConcurrentDownloads: '3',
+    globalProxyEnabled: 'false',
+    globalProxyConfig: '',
   };
 }

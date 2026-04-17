@@ -49,6 +49,7 @@ class FileAssembler {
     required String outputPath,
     required int segmentCount,
     required int expectedTotalSize,
+    List<int>? expectedSegmentSizes,
     void Function(int assembledBytes)? onProgress,
   }) async {
     // Ensure output directory exists
@@ -69,6 +70,17 @@ class FileAssembler {
           throw FileAssemblyException(
             'Segment $i temp file not found: ${tempFile.path}',
           );
+        }
+
+        // Verify segment size before assembly
+        if (expectedSegmentSizes != null && i < expectedSegmentSizes.length) {
+          final actualSize = await tempFile.length();
+          final expectedSize = expectedSegmentSizes[i];
+          if (expectedSize > 0 && actualSize != expectedSize) {
+            throw FileAssemblyException(
+              'Segment $i size mismatch: expected $expectedSize bytes, got $actualSize bytes',
+            );
+          }
         }
 
         // Stream the temp file into the output

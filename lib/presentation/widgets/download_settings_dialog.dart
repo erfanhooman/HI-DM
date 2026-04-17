@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/utils/speed_formatter.dart';
 import '../../data/models/download_item.dart';
+import '../../data/models/proxy_config.dart';
 import '../providers/download_manager_provider.dart';
+import '../screens/settings/settings_screen.dart';
 
 /// Dialog for per-download settings: connection count and speed limit.
 class DownloadSettingsDialog extends ConsumerStatefulWidget {
@@ -19,6 +21,8 @@ class _DownloadSettingsDialogState extends ConsumerState<DownloadSettingsDialog>
   late int _threadCount;
   late bool _hasSpeedLimit;
   late double _speedLimitKBs; // in KB/s for slider
+  ProxyConfig? _proxyConfig;
+  bool _proxyChanged = false;
 
   @override
   void initState() {
@@ -28,6 +32,7 @@ class _DownloadSettingsDialogState extends ConsumerState<DownloadSettingsDialog>
     _speedLimitKBs = widget.item.speedLimit > 0
         ? (widget.item.speedLimit / 1024).clamp(1, 102400)
         : 512;
+    _proxyConfig = widget.item.proxy;
   }
 
   Future<void> _save() async {
@@ -38,6 +43,9 @@ class _DownloadSettingsDialogState extends ConsumerState<DownloadSettingsDialog>
       threadCount: _threadCount,
       speedLimit: speedLimitBytes,
     );
+    if (_proxyChanged) {
+      await manager.updateDownloadProxy(widget.item.id!, _proxyConfig);
+    }
     if (mounted) Navigator.of(context).pop(true);
   }
 
@@ -213,6 +221,82 @@ class _DownloadSettingsDialogState extends ConsumerState<DownloadSettingsDialog>
                           style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6)),
                         ),
                       ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Proxy
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHigh.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.vpn_lock_rounded, size: 18, color: theme.colorScheme.primary),
+                        const SizedBox(width: 8),
+                        Text('Proxy', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface)),
+                        const Spacer(),
+                        if (_proxyConfig != null && _proxyConfig!.type != 'none')
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              _proxyConfig!.type.toUpperCase(),
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: theme.colorScheme.primary),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _proxyConfig != null && _proxyConfig!.type != 'none'
+                          ? '${_proxyConfig!.host}:${_proxyConfig!.port}'
+                          : 'Uses global proxy if enabled',
+                      style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6)),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        FilledButton.tonalIcon(
+                          icon: const Icon(Icons.edit, size: 16),
+                          label: const Text('Configure', style: TextStyle(fontSize: 12)),
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (_) => ProxyConfigDialog(
+                                initial: _proxyConfig,
+                                onSave: (config) {
+                                  setState(() {
+                                    _proxyConfig = config;
+                                    _proxyChanged = true;
+                                  });
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                        if (_proxyConfig != null && _proxyConfig!.type != 'none') ...[
+                          const SizedBox(width: 8),
+                          TextButton(
+                            onPressed: () => setState(() {
+                              _proxyConfig = null;
+                              _proxyChanged = true;
+                            }),
+                            child: const Text('Clear', style: TextStyle(fontSize: 12)),
+                          ),
+                        ],
+                      ],
+                    ),
                   ],
                 ),
               ),
