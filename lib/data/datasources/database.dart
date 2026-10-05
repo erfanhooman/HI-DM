@@ -30,6 +30,7 @@ class DownloadItems extends Table {
   TextColumn get customHeaders => text().withDefault(const Constant('{}'))();
   TextColumn get proxyConfig => text().nullable()();
   IntColumn get speedLimit => integer().withDefault(const Constant(0))(); // bytes/sec, 0=unlimited
+  BoolColumn get streamMode => boolean().withDefault(const Constant(false))();
 }
 
 class DownloadSegments extends Table {
@@ -86,7 +87,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -97,6 +98,10 @@ class AppDatabase extends _$AppDatabase {
       if (from < 2) {
         // Add speedLimit column to download_items
         await m.addColumn(downloadItems, downloadItems.speedLimit);
+      }
+      if (from < 3) {
+        // Add streamMode column (watch-while-downloading)
+        await m.addColumn(downloadItems, downloadItems.streamMode);
       }
     },
   );
