@@ -94,17 +94,31 @@ class AppDatabase extends _$AppDatabase {
     onCreate: (Migrator m) async {
       await m.createAll();
     },
+    // NOTE: intentionally idempotent. Installs in the wild can report a
+    // stale schema version while the columns are already present (partial,
+    // interrupted or out-of-order upgrade), which used to crash here with
+    // "SqliteException(1): duplicate column name: stream_mode".
+    // ignore: avoid-unused-parameters
     onUpgrade: (Migrator m, int from, int to) async {
-      if (from < 2) {
-        // Add speedLimit column to download_items
-        await m.addColumn(downloadItems, downloadItems.speedLimit);
-      }
-      if (from < 3) {
-        // Add streamMode column (watch-while-downloading)
-        await m.addColumn(downloadItems, downloadItems.streamMode);
-      }
+      await _addMissingColumns(m);
     },
   );
+
+  /// Adds every column the current schema expects but the file is missing.
+  /// Safe to run repeatedly and from any previous schema version.
+  Future<void> _addMissingColumns(Migrator m) async {
+    final existing = await customSelect(
+      "PRAGMA table_info('${downloadItems.actualTableName}')",
+    ).get();
+    final names = {for (final row in existing) row.read<String>('name')};
+
+    if (!names.contains(downloadItems.speedLimit.name)) {
+      await m.addColumn(downloadItems, downloadItems.speedLimit);
+    }
+    if (!names.contains(downloadItems.streamMode.name)) {
+      await m.addColumn(downloadItems, downloadItems.streamMode);
+    }
+  }
 }
 
 LazyDatabase _openConnection() {

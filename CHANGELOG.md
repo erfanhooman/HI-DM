@@ -50,7 +50,10 @@ All notable changes to HI-DM will be documented in this file.
 - **Premature stream close** — a connection that ends before the segment is
   complete is retried instead of being reported as a finished download
 - **Tray icon failed to load on macOS** — `tray_manager` expects a Flutter
-  asset path on macOS, not an absolute file path
+  asset path, not an absolute file path
+- **Startup crash `duplicate column name: stream_mode`** — the v2→v3 upgrade
+  is now idempotent: it checks which columns actually exist before adding
+  them, so a stale schema marker can no longer break the launch
 - Half-downloaded leftovers no longer accumulate (temp dir removed on delete,
   orphans cleaned at startup)
 
